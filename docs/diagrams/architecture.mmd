@@ -1,0 +1,49 @@
+flowchart LR
+    subgraph SRC["Sources"]
+        direction TB
+        SEC["SEC EDGAR"]
+        NEWS["News feeds"]
+        MKT["yfinance"]
+        MAC["FRED"]
+    end
+
+    GH["GitHub<br/>CI · deploy"]
+
+    subgraph JOB["Airflow · Oracle VM"]
+        direction TB
+        ING["ingest"]
+        PRC["process<br/>copies · chunks · bge-m3 · Haiku"]
+        DBT["dbt build + tests"]
+        GRAPH["report graph<br/>LangGraph"]
+        DEL["deliver"]
+        ING --> PRC --> DBT --> GRAPH --> DEL
+    end
+
+    subgraph PG["PostgreSQL · Neon"]
+        direction TB
+        RAW[("raw · content<br/>documents · chunks · vectors")]
+        MART[("staging · intermediate · marts<br/>dbt-owned")]
+        OPS[("ops · report<br/>runs · deliveries · evidence")]
+    end
+
+    subgraph OUT["Outputs"]
+        direction TB
+        MAIL["Email"]
+        MCP["MCP · M4"]
+        WEB["Website · M5"]
+    end
+
+    SRC --> ING
+    GH -.->|deploy| JOB
+    ING --> RAW
+    PRC --> RAW
+    DBT -->|reads raw| MART
+    GRAPH -->|reads raw + mart| OPS
+    DEL --> OPS
+    DEL --> MAIL
+    MART -.-> MCP
+    OPS -.-> WEB
+    GRAPH -.-> LS["LangSmith"]
+
+    classDef later stroke-dasharray: 5 5
+    class MCP,WEB,LS later

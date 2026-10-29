@@ -1,0 +1,15 @@
+# The login user must be a member of invest_dbt; dbt runs SET ROLE so dbt owns what it builds.
+invest:
+  target: main
+  outputs:
+    main:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5433') | as_number }}"
+      user: "{{ env_var('DBT_PG_USER') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD') }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'invest') }}"
+      sslmode: "{{ env_var('DBT_PG_SSLMODE', 'prefer') }}"
+      role: invest_dbt
+      schema: staging
+      threads: 4

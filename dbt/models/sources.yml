@@ -1,0 +1,19 @@
+# Python-owned tables. Postgres constraints already enforce keys, not-null and allowed
+# values, so tests here cover only what a constraint can't express.
+version: 2
+
+sources:
+  - name: config
+    schema: raw
+    tables:
+      - name: universe
+
+  - name: docs
+    schema: raw
+    tables:
+      - name: documents
+        columns:
+          - name: tickers
+            data_tests:
+              - tickers_in_universe
+      - name: document_versions

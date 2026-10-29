@@ -1,0 +1,15 @@
+flowchart LR
+    V["new version"] --> CP{"copy of a<br/>canonical doc?"}
+    CP -->|yes| AL["link to original<br/>no chunks"]
+    CP -->|no| T{"type"}
+    T -->|filing| C1["Item › heading sections<br/>tables: title · unit · periods"]
+    T -->|press release| C2["headings · quotes + speaker<br/>tables"]
+    T -->|transcript| C3["speaker turns<br/>question + its answers"]
+    T -->|news| C4["full · partial: paragraphs<br/>headline_only: title only"]
+    C1 & C2 & C3 & C4 --> H["context header + text<br/>embed_input_hash"]
+    H --> EC{"embedding for<br/>hash + model?"}
+    EC -->|no| E["bge-m3<br/>dense + sparse"]
+    EC -->|yes| RU["reuse"]
+    E --> EV{"same event?<br/>≤ 72h · shared ticker<br/>cos ≥ 0.9"}
+    RU --> EV
+    EV --> PG[("chunks · embeddings · event<br/>1 transaction per doc")]

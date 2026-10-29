@@ -1,0 +1,72 @@
+flowchart LR
+    subgraph SRC["Sources · Python-owned"]
+        direction TB
+        DOC[("raw.documents<br/>raw.document_versions")]
+        CNT[("content.chunks<br/>document_events · summaries")]
+        PRC[("raw.prices_daily")]
+        UNI[("raw.universe")]
+        EXF[("content.extracted_facts")]
+        XBRL[("raw.xbrl_facts · M2")]
+        LED[("raw.ledger_entries · M2")]
+    end
+
+    subgraph STG["staging · views"]
+        direction TB
+        SD["stg_docs__documents<br/>stg_docs__versions"]
+        SC["stg_content__chunks<br/>stg_content__document_events"]
+        SP["stg_market__prices_daily"]
+        SNAP["snap_universe · snapshot"]
+        SE["stg_content__extracted_facts"]
+        SX["stg_sec__xbrl_facts"]
+        SL["stg_broker__ledger_entries"]
+    end
+
+    subgraph INT["intermediate · views, not exposed"]
+        direction TB
+        IU["int_financial_facts_unioned"]
+        IR["int_financial_facts_resolved<br/>known_from · known_to"]
+        IC["int_financial_periods_compared"]
+        IP["int_positions_rolled_up_daily"]
+        IU --> IR --> IC
+    end
+
+    subgraph MRT["marts · tables with contracts"]
+        direction TB
+        DC["dim_companies"]
+        FCOV["fct_document_coverage_daily"]
+        FEV["fct_events"]
+        FFM["fct_financial_metrics"]
+        FPD["fct_portfolio_daily"]
+    end
+
+    EXP{{"exposure: report_graph<br/>later mcp_server, website"}}
+
+    DOC --> SD
+    CNT --> SC
+    PRC --> SP
+    UNI --> SNAP
+    EXF --> SE
+    XBRL --> SX
+    LED --> SL
+    SNAP --> DC
+    SD --> FEV
+    SC --> FEV
+    SD --> FCOV
+    SC --> FCOV
+    SE --> IU
+    SX --> IU
+    IC --> FFM
+    SL --> IP
+    SP --> IP
+    IP --> FPD
+    FEV --> EXP
+    FFM --> EXP
+    FPD --> EXP
+    DC --> EXP
+
+    classDef py fill:#fde7c8,stroke:#c77700,color:#000
+    classDef dbt fill:#d6e8ff,stroke:#2f6db5,color:#000
+    classDef exp fill:#ede7f6,stroke:#5e35b1,color:#000
+    class DOC,CNT,PRC,UNI,EXF,XBRL,LED py
+    class SD,SC,SP,SNAP,SE,SX,SL,IU,IR,IC,IP,DC,FCOV,FEV,FFM,FPD dbt
+    class EXP exp

@@ -1,0 +1,16 @@
+flowchart LR
+    S["report.sentences"] --> C["report.claims"]
+    C --> E["report.claim_evidence"]
+    E -->|quote| CH["content.chunks<br/>span in chunk"]
+    E -->|number| CA["report.calculations<br/>inputs + output"]
+    E -->|number| FX["extracted_facts · xbrl_facts · prices"]
+    CA --> FX
+    CH --> V["raw.document_versions<br/>char_start..char_end"]
+    FX -->|table row/col| V
+    V --> D["raw.documents<br/>URL · accession"]
+    FX -.->|XBRL: accession| D
+
+    classDef rep fill:#ede7f6,stroke:#5e35b1,color:#000
+    classDef py fill:#fde7c8,stroke:#c77700,color:#000
+    class S,C,E,CA rep
+    class CH,FX,V,D py

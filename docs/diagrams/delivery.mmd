@@ -1,0 +1,13 @@
+stateDiagram-v2
+    direction LR
+    state "check Sent Mail<br/>IMAP rfc822msgid" as Check
+
+    [*] --> pending : final report
+    pending --> sending : commit, then SMTP
+    sending --> sent : 250
+    sending --> failed : 5xx, alert
+    sending --> Check : crash or timeout
+    Check --> sent : found
+    Check --> sending : not found or check fails, attempts < 2
+    Check --> unknown : attempts = 2, alert
+    sent --> [*]

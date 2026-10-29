@@ -1,0 +1,15 @@
+flowchart LR
+    S["sentence"] --> K{"column"}
+    K -->|Fact| N{"numbers match and<br/>source supports it?"}
+    K -->|Interpretation| D{"its facts kept?"}
+    K -->|Unknown| P["keep"]
+    N -->|cause is a guess| SPLIT["keep fact,<br/>move cause to Interpretation"]
+    N -->|yes| P
+    D -->|yes| P
+    N -->|no| X["drop"]
+    D -->|no| X
+
+    classDef bad fill:#ffd9d6,stroke:#c0392b,color:#000
+    classDef good fill:#d8f3dc,stroke:#2d6a4f,color:#000
+    class X bad
+    class P,SPLIT good

@@ -1,0 +1,17 @@
+flowchart LR
+    D["Finnhub · Google News · GDELT · IR RSS<br/>title · URL · outlet · time · snippet"] --> U["resolve<br/>publisher URL"]
+    U --> F{"fetch page<br/>robots.txt · ≤ 1 req/s per domain"}
+    F -->|blocked or error| H["headline_only<br/>+ fetch_error"]
+    F -->|HTML| E["trafilatura"]
+    E -->|nothing| H
+    E --> C{"complete?<br/>JSON-LD paywall flag<br/>length · wordCount"}
+    C -->|yes| FULL["full"]
+    C -->|lead or teaser| P["partial"]
+    H -.->|429 · 5xx · timeout| R["retry next 2 runs"]
+
+    classDef good fill:#d8f3dc,stroke:#2d6a4f,color:#000
+    classDef mid fill:#fff3cd,stroke:#b7791f,color:#000
+    classDef bad fill:#ffd9d6,stroke:#c0392b,color:#000
+    class FULL good
+    class P mid
+    class H bad

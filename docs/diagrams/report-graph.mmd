@@ -1,0 +1,20 @@
+stateDiagram-v2
+    direction LR
+    state "Load context" as Load
+    state "Portfolio (code)" as Portfolio
+    state "Fact check" as Fact
+    state "Style review" as StyleCheck
+    state "Save report + evidence" as Save
+
+    [*] --> Load
+    Load --> Research
+    Research --> Portfolio
+    Portfolio --> Writer
+    Writer --> Fact
+    Fact --> StyleCheck : passed
+    StyleCheck --> Writer : fix, max 2
+    StyleCheck --> Save : ok
+    Save --> Deliver
+    Deliver --> [*]
+
+    note right of Fact : failed sentences dropped

@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      INVEST_TEST_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      INVEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DBT_PG_HOST: localhost
+      DBT_PG_PORT: "5432"
+      DBT_PG_USER: postgres
+      DBT_PG_PASSWORD: postgres
+      DBT_PG_DBNAME: postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.2"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+      - run: uv run invest db migrate
+      - run: uv run invest db load-fixtures tests/fixtures/db
+      - run: uv run dbt build --project-dir dbt --profiles-dir dbt

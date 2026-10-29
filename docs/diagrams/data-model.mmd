@@ -1,0 +1,63 @@
+erDiagram
+    DOCUMENTS ||--|{ DOCUMENT_VERSIONS : "text changes"
+    DOCUMENTS ||--o{ DOCUMENTS : "copies"
+    DOCUMENT_VERSIONS ||--o{ CHUNKS : "per chunker_version"
+    CHUNKS }o--|| EMBEDDINGS : "embed_input_hash + active model_key"
+    DOCUMENT_VERSIONS ||--o{ SUMMARIES : "per model + prompt"
+    DOCUMENTS }o--o{ EVENTS : "document_events"
+    DOCUMENT_VERSIONS ||--o{ EXTRACTED_FACTS : "per parser_version"
+    REPORTS ||--|{ REPORT_SENTENCES : ""
+    REPORT_SENTENCES ||--o{ CLAIMS : ""
+    CLAIMS ||--|{ CLAIM_EVIDENCE : ""
+    CLAIM_EVIDENCE }o--o| CHUNKS : "quote span"
+    CLAIM_EVIDENCE }o--o| EXTRACTED_FACTS : "number"
+    REPORTS ||--o{ DELIVERIES : "one per slot + recipient"
+
+    DOCUMENTS {
+        text doc_id PK "sec:accession:file or sha1(url)"
+        text canonical_doc_id FK "self, or original"
+        text source_id UK "with source"
+        text canonical_url UK
+    }
+    DOCUMENT_VERSIONS {
+        text version_id PK "doc_id:hash12"
+        text content_hash UK "with doc_id"
+    }
+    CHUNKS {
+        text chunk_id PK "version/chunker/ordinal"
+        text embed_input_hash FK
+    }
+    EMBEDDINGS {
+        text input_hash PK
+        text model_key PK
+    }
+    SUMMARIES {
+        text version_id PK
+        text model PK
+        text prompt_version PK
+    }
+    EVENTS {
+        uuid event_id PK
+    }
+    EXTRACTED_FACTS {
+        text fact_id PK "hash(version, parser, locator)"
+    }
+    REPORTS {
+        uuid report_id PK
+        text slot_key "one final per slot"
+    }
+    REPORT_SENTENCES {
+        uuid report_id PK
+        int sentence_no PK
+    }
+    CLAIMS {
+        uuid claim_id PK
+    }
+    CLAIM_EVIDENCE {
+        uuid claim_id PK
+        int ordinal PK
+    }
+    DELIVERIES {
+        uuid delivery_id PK
+        text slot_key UK "with recipient"
+    }

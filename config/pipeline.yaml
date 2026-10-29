@@ -1,0 +1,6 @@
+# Active processor versions. Changing one makes the pipeline reprocess only what that
+# processor produces; outputs of older versions stay for reports that cite them.
+chunker_version: chunker-v1
+embedding_model_key: bge-m3:max512  # F6 adds the pinned Hugging Face revision
+summary_prompt_version: summary-v1
+fact_parser_version: facts-v1

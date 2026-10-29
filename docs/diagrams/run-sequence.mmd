@@ -1,0 +1,35 @@
+%%{init: {"sequence": {"mirrorActors": false}}}%%
+sequenceDiagram
+    participant AF as Airflow
+    participant T as invest task
+    participant PG as Postgres
+    participant DBT as dbt
+    participant REP as report graph
+    participant MAIL as Gmail
+
+    AF->>T: cron (Toronto)
+    T->>PG: market day? slot already sent?
+    opt holiday or sent
+        T-->>AF: skip
+    end
+    AF->>T: ingest
+    T->>PG: lock, 1 transaction per item
+    opt source fails
+        T->>PG: log in run_steps, continue
+    end
+    AF->>DBT: source freshness (prices)
+    AF->>T: process
+    T->>PG: copies, chunks, embeddings, events, summaries
+    AF->>DBT: dbt build
+    DBT->>PG: staging → intermediate → marts, tests
+    alt task or test fails
+        AF->>MAIL: alert
+    else pass
+        AF->>REP: report
+        REP->>PG: search, metrics
+        REP->>PG: report, sentences, evidence
+        AF->>T: deliver
+        T->>PG: delivery = sending
+        T->>MAIL: send, Message-ID = delivery_id
+        T->>PG: delivery = sent
+    end

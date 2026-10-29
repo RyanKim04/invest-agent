@@ -1,0 +1,24 @@
+# Tickers the pipeline follows. F2 maps documents to tickers with `aliases`.
+# CIKs are from memory; F1 checks them against EDGAR.
+# `sectors` stays empty until the 4 tracked sectors are chosen.
+companies:
+  - ticker: GOOG
+    cik: "0001652044"
+    name: Alphabet Inc.
+    aliases: [Alphabet, Google, GOOGL]
+    sectors: []
+    lists: [pilot]
+
+  - ticker: META
+    cik: "0001326801"
+    name: Meta Platforms, Inc.
+    aliases: [Meta Platforms, Facebook, Instagram, WhatsApp]
+    sectors: []
+    lists: [pilot]
+
+  - ticker: RDDT
+    cik: "0001713445"
+    name: Reddit, Inc.
+    aliases: [Reddit]
+    sectors: []
+    lists: [pilot]

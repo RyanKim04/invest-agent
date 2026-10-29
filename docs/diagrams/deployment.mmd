@@ -1,0 +1,36 @@
+flowchart TB
+    subgraph GH["GitHub"]
+        CI["ci.yml<br/>ruff · pytest"]
+        CD["deploy.yml"]
+    end
+    subgraph VM["Oracle Cloud A1 VM · Docker Compose"]
+        SCH["Airflow scheduler<br/>LocalExecutor"]
+        DP["dag-processor"]
+        API["api-server<br/>localhost only"]
+        AMD[("Airflow metadata<br/>Postgres 17")]
+        APP["invest venv<br/>bge-m3 weights on disk"]
+    end
+    subgraph SVC["Services"]
+        NEON[("Neon Postgres")]
+        OBJ[("Oracle Object Storage<br/>weekly dumps")]
+        ANT["Anthropic"]
+        SMTP["Gmail SMTP + IMAP"]
+        LS["LangSmith"]
+    end
+    subgraph LOCAL["Laptop"]
+        DC["docker compose<br/>same file + local pgvector"]
+        CDK["Claude Desktop · M4"]
+    end
+
+    CI --> CD
+    CD -->|SSH: pull · build · migrate · up| SCH
+    SCH --> APP
+    SCH --- AMD
+    DP --- AMD
+    API --- AMD
+    APP <--> NEON
+    APP --> OBJ
+    APP --> ANT
+    APP <--> SMTP
+    APP -.-> LS
+    CDK -.-> NEON

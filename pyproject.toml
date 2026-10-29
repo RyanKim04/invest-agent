@@ -1,0 +1,35 @@
+[project]
+name = "invest-agent"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dbt-core>=1.12,<1.13",
+    "dbt-postgres>=1.11,<1.12",
+    "psycopg[binary]>=3.3",
+    "pyyaml>=6.0",
+    "typer>=0.27",
+]
+
+[project.scripts]
+invest = "invest_agent.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

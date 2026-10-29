@@ -1,0 +1,15 @@
+flowchart LR
+    Q["query + tool args"] --> P["parse filters<br/>ticker · form · Item · period"]
+    P --> F["candidates<br/>filters · since · current · not a copy"]
+    F --> DS["dense · exact"]
+    F --> SP["bge-m3 sparse · exact"]
+    F -.-> FT["FTS · F7 variant"]
+    DS --> RRF["RRF k=60 · top 24"]
+    SP --> RRF
+    FT -.-> RRF
+    RRF --> CAP["≤ 2 per event"]
+    CAP --> K["top 8"]
+    RRF -.-> RR["reranker · M3"]
+    RR -.-> CAP
+    classDef later stroke-dasharray: 5 5
+    class FT,RR later
