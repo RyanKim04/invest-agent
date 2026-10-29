@@ -23,13 +23,13 @@ F3 and F5 can start right after F0, using test data.
 
 ### F0 · Repo, environment, database
 
-- Private repo `invest-agent`, Python 3.12, uv
+- Public repo `invest-agent`, Python 3.12, uv. Secrets, `private/`, data and logs are gitignored
 - One `docker-compose.yml` for the laptop and the VM:
   - Airflow: scheduler, dag-processor, api-server
   - Airflow's Postgres 17
-  - laptop only: `pgvector/pgvector:0.8.7-pg18` for app data
+  - laptop only: `pgvector/pgvector:0.8.6-pg18` for app data
 - Image: `apache/airflow:3.3.2` plus the app in `/opt/invest/.venv`. No model weights in the image
-- Neon Free project. Run `SELECT version(), extversion FROM pg_extension WHERE extname='vector'` and pin the local image to the same versions
+- Neon Free project: Postgres 18.6, pgvector 0.8.6 (checked Oct 29, 2026). Local and CI images match. Login roles `app_login` and `dbt_login` are created with SQL, because console-created roles get `neon_superuser`
 - Plain SQL migrations in `src/invest_agent/db/migrations/NNNN_*.sql` (no Alembic, since there are no ORM models). `invest db migrate` applies each file once in its own transaction, under an advisory lock, and stops if an applied file's checksum changed. Applied files are recorded in `ops.schema_migrations`
 - Roles `app`, `dbt` and `reader` ([ownership](01-system-overview.md#storage))
 - `config/universe.yaml`: ticker, CIK, aliases, sectors
@@ -352,7 +352,6 @@ The M1 gate:
 
 | Item | Checked in |
 | --- | --- |
-| Neon's Postgres and pgvector versions | F0 |
 | Whether SEC companyfacts includes segment (dimensional) facts. If not, segments come only from filing tables | F1 |
 | Finnhub company-news fields and free-tier limits (the API docs didn't render) | F1 |
 | Which constraints Postgres enforces in a dbt contract (the docs table was read by tab order) | F3 |

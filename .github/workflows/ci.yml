@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:0.8.7-pg18
+        image: pgvector/pgvector:0.8.6-pg18
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]

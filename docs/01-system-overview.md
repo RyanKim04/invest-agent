@@ -70,7 +70,7 @@ The news APIs only find articles. The body has to come from the publisher's own 
 
 ## Storage
 
-One PostgreSQL 18 database with pgvector 0.8.7, on Neon Free.
+One PostgreSQL 18 database with pgvector 0.8.6, on Neon Free.
 
 | Schema | Owner | Holds | Rebuildable |
 | --- | --- | --- | --- |
@@ -289,7 +289,7 @@ The only recipient is me, so a duplicate costs less than a missing report.
 
 | Part | Choice |
 | --- | --- |
-| Database | PostgreSQL 18 + pgvector 0.8.7, Neon Free (Docker locally) |
+| Database | PostgreSQL 18 + pgvector 0.8.6, Neon Free (Docker locally) |
 | Transform | dbt Core 1.12 + dbt-postgres |
 | Orchestration | Airflow 3.3, LocalExecutor |
 | Runtime | Oracle Cloud A1 VM (Always Free), Docker Compose; the same compose file on the laptop |

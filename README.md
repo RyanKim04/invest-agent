@@ -18,14 +18,20 @@ Airflow UI: http://localhost:8080
 
 ## Neon
 
-1. Create a project, on Postgres 18 if offered. Use the **direct** connection string, not the pooled one.
-2. Run `invest db migrate` with `INVEST_MIGRATE_DATABASE_URL` set to the owner role's URL.
-3. In the Neon console, create two login roles, then grant the group roles:
+Neon settings go in `.env.neon` (gitignored), not `.env`, so laptop commands never touch Neon.
+
+1. Create a Postgres 18 project. Use the **direct** connection string, not the pooled one.
+2. `uv run --env-file .env.neon invest db migrate`, with `INVEST_MIGRATE_DATABASE_URL` set to the owner (`neondb_owner`) URL.
+3. Create the login roles with SQL, as the owner. Roles made in the Neon console get `neon_superuser`.
+   Passwords need at least 60 bits of entropy.
    ```sql
-   GRANT invest_app TO <app login>;
-   GRANT invest_dbt TO <dbt login>;
+   CREATE ROLE app_login LOGIN PASSWORD '...';
+   CREATE ROLE dbt_login LOGIN PASSWORD '...';
+   GRANT invest_app TO app_login;
+   GRANT invest_dbt TO dbt_login;
    ```
-4. Record the versions and pin `pgvector/pgvector:<version>-pg<major>` in `docker-compose.yml` and CI to match:
+   `INVEST_DATABASE_URL` uses `app_login`. `DBT_PG_*` use `dbt_login`.
+4. Keep `pgvector/pgvector:<version>-pg<major>` in `docker-compose.yml` and CI equal to Neon's:
    ```sql
    SELECT version(), extversion FROM pg_extension WHERE extname = 'vector';
    ```

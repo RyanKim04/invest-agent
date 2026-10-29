@@ -46,7 +46,8 @@ services:
 
   app-db:
     profiles: [local]
-    image: pgvector/pgvector:0.8.7-pg18
+    # Same pgvector as Neon.
+    image: pgvector/pgvector:0.8.6-pg18
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
