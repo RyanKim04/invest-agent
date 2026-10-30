@@ -5,8 +5,12 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "dbt-core>=1.12,<1.13",
     "dbt-postgres>=1.11,<1.12",
+    "feedparser>=6.0",
+    "httpx>=0.28",
+    "protego>=0.7",
     "psycopg[binary]>=3.3",
     "pyyaml>=6.0",
+    "trafilatura>=2.3,<2.4",
     "typer>=0.27",
 ]
 
@@ -17,6 +21,10 @@ invest = "invest_agent.cli:app"
 dev = [
     "pytest>=9.2",
     "ruff>=0.17",
+]
+# F1 only. yfinance moves to dependencies if F1 keeps it.
+probe = [
+    "yfinance>=1.7",
 ]
 
 [build-system]

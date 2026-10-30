@@ -26,8 +26,8 @@ Each step's remaining work is whatever still lacks its output row, so a rerun af
 
 | Step | Remaining work | One transaction writes | After a crash |
 | --- | --- | --- | --- |
-| ingest | Items newer than the source cursor | Document + version | Refetched; `ON CONFLICT` adds nothing |
-| process | Canonical current versions with no chunks for the active chunker, or no summary for the active prompt | Chunks, new embeddings and event link, or the summary | Only the document in flight is redone; at most 1 LLM call repeats |
+| ingest | Items in the source's lookback window that aren't stored yet ([late arrivals](#late-arrivals)). Sources run in parallel | Document + version | Refetched; `ON CONFLICT` adds nothing |
+| process | Canonical current versions with no chunks for the active chunker, or no summary for the active prompt | Chunks, new embeddings and event link, or the summary | Only documents in flight are redone. Summaries run 5 at a time, so at most 5 LLM calls repeat |
 | dbt build | — | `staging`, `intermediate`, `marts` | Rebuilt |
 | report | Slot has no final report | Report, sentences, claims, evidence | Regenerated (≈ $0.15) |
 | deliver | Slot has no sent delivery | Delivery row | See [Delivery](#delivery) |
@@ -36,22 +36,62 @@ Each step's remaining work is whatever still lacks its output row, so a rerun af
 - Each `invest` command takes a Postgres advisory lock over a direct connection, not the pooler, so a manual CLI run can't overlap a scheduled one.
 - An item that fails 3 times is skipped until its processor version changes.
 
+## Late arrivals
+
+Sources publish late, and late items carry earlier timestamps. On Oct 29, RDDT's results came out at 16:08 ET. Finnhub listed none of the 16 articles about it until hours later, all timestamped 16:07–19:33.
+
+| Source | Measured delay (F1) | Lookback |
+| --- | --- | --- |
+| SEC 8-K | Earnings 8-Ks accepted 16:01–16:08 ET. API delay measured in F2 | 1 day |
+| IR RSS | Release on the site within a minute of the 8-K | 1 day |
+| Alpaca | Benzinga flash headlines 2 min after the release. Free keys may lag 15 min | 6 h |
+| Finnhub | 2–5 h after the article's timestamp | 2 days (the API takes dates) |
+| yfinance ratings | Same day | 3 days |
+| Transcripts | Alpaca the same day; Alpha Vantage 1–8 days | Polled daily until found, up to 14 days |
+
+1. **A window, not a watermark.**
+   - Each run asks every source for the window starting at the source's last successful run minus its lookback, up to now. It skips what it already has, by unique source ID.
+   - A watermark on `published_at` would silently drop every late item.
+   - After a missed run or a weekend, the window reaches back to the last successful run on its own.
+2. **Reports pick by first seen, not by published.**
+   - A document's `created_at` is when we first saw it. A report covers documents first seen since the previous report's cutoff.
+   - An article published at 16:07 and first seen at 21:12 goes into the 22:00 report.
+   - If it was published before the previous report's cutoff, the report says so: "(published 16:07, seen 21:12)".
+   - Items published more than 7 days before they're seen go to search only.
+3. **Primary sources first on earnings days.**
+   - Earnings dates and before- or after-market timing come from Finnhub's earnings calendar (free) and yfinance.
+   - On those days the `earnings_watch` DAG polls SEC, IR RSS and Alpaca every 10 minutes through the release window (after market 15:55–18:30 ET, before market 06:00–09:00 ET), and Finnhub every 30 minutes.
+   - The close run waits until 16:25 for the 8-K or release (an Airflow sensor in reschedule mode). If neither has arrived, the report says the results aren't out.
+   - The 22:00 earnings deep-dive is built on the 8-K, the release and the same-day transcript. It states how many news articles had arrived when it was written.
+4. **Delay is measured.**
+   - `fct_source_lag_daily` holds, per source and day, the count and the p50/p95 of `created_at − published_at`.
+   - A test warns when a source's p95 nears its lookback, because items could then fall outside the window.
+   - It also warns when a tracked ticker has no news 3 hours after its earnings release.
+
 ## Sources for M1
 
-| Source | Gives | Full text | Open question |
-| --- | --- | --- | --- |
-| SEC EDGAR | Filing list (submissions API), filing HTML and exhibits (Archives), GAAP facts (XBRL API) | Yes, from Archives | None. Official, 10 req/s limit |
-| Company IR RSS | Title, link, description | From the linked release page (HTML or PDF) | Not every company has one |
-| Finnhub company news | Headline, summary, URL, outlet | No | Fields and free-tier limits not yet checked (docs didn't render) |
-| Google News RSS | Title, Google link, outlet | No | Unofficial; the publisher URL has to be resolved from Google's link |
-| GDELT DOC API | URL, title, date (last 3 months) | No | Full-text *search*, but no article text returned |
-| yfinance | Prices, ratings, estimates | — | Unofficial, can break |
+Measured in F1 ([source probe](source-probe.md)).
 
-Tiingo, Alpha Vantage and FRED are tested in F1. Reddit is out because its API stops accepting new applications on Oct 31, 2026. No M1 source has earnings call transcripts.
+| Source | Gives | Full text | Limit |
+| --- | --- | --- | --- |
+| SEC EDGAR | Filing list with 8-K Items (submissions API), filing HTML and exhibits (Archives), GAAP facts (XBRL API, no segments) | Yes, from Archives | 10 req/s |
+| Company IR RSS | Release title and link (`/rss/pressrelease.aspx`) | From the release page | — |
+| Finnhub company news | Headline, ~22-word snippet, link, outlet | From the publisher page: 58% `full` over 30 days | 60/min. About 250 items per call, so one call per ticker per day |
+| Alpaca News | Benzinga articles with content, earnings headlines within minutes, call transcripts the same day | `content` on about 70% | 200/min |
+| yfinance | Prices, rating and target changes, estimates, earnings dates | — | Unofficial, can break. Rating data has errors |
+| Alpha Vantage | Earnings call transcripts (backup) | Yes, verbatim with speakers, 1–8 days after the call | 25/day |
+| FRED | Rates, CPI, unemployment, dollar index | — | — |
+
+Dropped in F1:
+- Google News RSS: robots.txt
+- GDELT: 429
+- Tiingo, EODHD, FMP: free plans don't cover our use
+- TipRanks: no storage allowed
+- Reddit: its API stops accepting new applications on Oct 31, 2026
 
 ### News bodies
 
-The news APIs only find articles. The body has to come from the publisher's own page.
+Finnhub only finds articles. The body comes from the publisher's own page, or from Alpaca for Benzinga, which blocks our fetches.
 
 ![News body](diagrams/news-body.png)
 
@@ -62,7 +102,7 @@ The news APIs only find articles. The body has to come from the publisher's own 
 | `headline_only` | Title only. `fetch_error` holds the reason if the fetch failed | Discovery, event grouping, a link, and quoting the headline. Nothing about the article's reasoning, quotes or numbers |
 
 - **Completeness check.** An article is `partial` if its JSON-LD says `isAccessibleForFree: false`, if it has fewer than 150 extracted words, if a paywall phrase appears, or if the extracted words are under 70% of the JSON-LD `wordCount`. These are starting values; F1 tunes them.
-- **Fetching.** Obey robots.txt, make at most 1 request per second per domain, and send a User-Agent that names the project.
+- **Fetching.** Obey robots.txt (RFC 9309), make at most 1 request per second per domain with one request in flight, and send a User-Agent that names the project. Different domains are fetched in parallel.
 - **Retries.** A transient error (429, 5xx, timeout) is retried on the next 2 runs.
 - **What we don't do.** No paywall bypass. No headless browser unless F1 shows a key publisher needs one.
 - **Two kinds of summary.** The feed's snippet goes in `feed_snippet`, our Haiku summary in `content.summaries`. They stay separate. Only `full` and `partial` versions are summarized.
@@ -109,7 +149,7 @@ Roles:
 
 - **Run columns.** Every Python output row has `run_id` and `created_at`. Python tables enforce real PK, FK, unique and check constraints. dbt `relationships` tests cover only links with no FK: evidence rows pointing at different tables, and chunk → active embedding.
 - **Embedding lookup.** A chunk's embedding is the row in `embeddings` with the chunk's `embed_input_hash` and the active `model_key`. The hash covers header + text only. Model-specific prefixes are part of `model_key`. Each report records the `model_key` it searched with.
-- **Time columns.** `published_at` is what the source states. `fetched_at` is when we fetched it. `created_at` is when we processed it. `as_of` is the report's cutoff. `known_from` / `known_to` mark when a resolved fact was valid.
+- **Time columns.** `published_at` is what the source states. `created_at` on `raw.documents` is when we first saw the document, and reports select by it. `fetched_at` is when a version's body was fetched. `as_of` is the report's cutoff. `known_from` / `known_to` mark when a resolved fact was valid.
 - **No in-place updates.** Documents, versions and chunks are never updated in place, so a quote cited in an old report still resolves.
 
 **Ledger.** One row for every cash movement, not just trades: deposits, withdrawals, FX, dividends, withholding tax, splits and fees. Without them, returns and drawdown come out wrong.
@@ -227,7 +267,7 @@ FTS and an HNSW index are added only if the F7 benchmark shows a gain.
 
 | Node | Model | Tools |
 | --- | --- | --- |
-| Load context | code | `holdings()`, calendar, documents since the last sent report |
+| Load context | code | `holdings()`, calendar, documents first seen since the last sent report |
 | Research | Sonnet 5.5, temp 0.2 | `search_chunks`, `price_quote`, `facts_lookup(as_of)` |
 | Portfolio | code | `pnl_attribution`, `beta`, `risk_contribution`, `rule_check` |
 | Writer | Sonnet 5.5 (Opus 5.5 on earnings days), temp 0.6 | none; numbers only from `metrics` |
@@ -282,6 +322,7 @@ The only recipient is me, so a duplicate costs less than a missing report.
 | After-hours | 22:00 | `40 21 * * 1-5` |
 
 - A time-zone-aware Airflow cron follows daylight saving, so each report needs one cron.
+- On a tracked ticker's earnings day, `earnings_watch` runs every 10 minutes through the release window, and the close run waits until 16:25 for the release ([late arrivals](#late-arrivals)).
 - The first task skips market holidays and slots that were already sent.
 - If the VM is down, that report is skipped. The VM can be rebuilt from the repo. Airflow's metadata DB holds only run history.
 
@@ -328,7 +369,7 @@ The only recipient is me, so a duplicate costs less than a missing report.
 
 ## Open problems
 
-1. **News full-text coverage is unknown.** Filings and releases have a reliable full-text path, but news may often be blocked or paywalled. F1 measures it on 100 real articles, and if a major event has no full-text source, a paid full-text source is considered.
+1. **Independent reporting is thin.** Over 30 days there were 1,197 full texts about GOOG, 977 about META and 93 about RDDT. About half of them are analysis or opinion, and half of the reporting is Benzinga. RDDT had 5 reporting outlets, 14 of its 18 reporting articles from Benzinga. Reuters, WSJ and FT pages don't come through Finnhub. A paid source is worth considering only if a report misses an event.
 2. **Embedding speed on 2 OCPU is unknown.** Measured in F6.
-3. **No transcript source.** The chunking rules exist, but no M1 source provides transcripts.
+3. **Analyst reasons are sparse.** Only 10 of 44 rating changes in 30 days had a reason in an article, and every one was a journalist's paraphrase. Broker reports aren't available.
 4. **The unclear-send check is untested.** Google documents IMAP `X-GM-RAW` and the `rfc822msgid:` operator separately, not together.

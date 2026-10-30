@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F1 News Probe</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e4e4df;
+    --accent: #2f5d8a; --full: #2e7d4f; --partial: #b7791f; --headline: #b03a2e; --chip: #f0f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
+      --accent: #7fb0e0; --full: #6cc28f; --partial: #e0b05a; --headline: #e8786c; --chip: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding: 20px 24px 8px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+  nav button { background: none; border: 0; padding: 10px 14px; color: var(--muted);
+               font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button.on { color: var(--text); border-bottom-color: var(--accent); }
+  main { padding: 16px 24px 40px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;
+           margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .card b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .card span { color: var(--muted); font-size: 12px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  select, input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                  background: var(--panel); color: var(--text); }
+  input[type=search] { min-width: 220px; flex: 1; }
+  .split { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .scroll { max-height: 70vh; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row { cursor: pointer; }
+  tr.row:hover, tr.sel { background: var(--chip); }
+  .st { font-weight: 600; }
+  .full { color: var(--full); } .partial { color: var(--partial); } .headline_only { color: var(--headline); }
+  .chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 5px;
+          font-size: 11px; color: var(--muted); margin-right: 3px; }
+  .detail { padding: 14px 16px; }
+  .detail h2 { font-size: 16px; margin: 0 0 6px; }
+  .detail .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .detail pre { white-space: pre-wrap; font: 13px/1.55 Georgia, serif; margin: 0; }
+  a { color: var(--accent); }
+  .note { color: var(--muted); font-size: 12px; padding: 8px; }
+  .passage { background: var(--chip); border-radius: 6px; padding: 8px 10px; margin: 6px 0;
+             font-size: 13px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>F1 News Probe</h1>
+  <div class="sub" id="sub"></div>
+</header>
+<nav>
+  <button data-tab="articles" class="on">Articles</button>
+  <button data-tab="publishers">Publishers</button>
+  <button data-tab="analyst">Analyst reasons</button>
+</nav>
+<main>
+  <div class="cards" id="cards"></div>
+  <div class="filters">
+    <select id="f-source"><option value="">All sources</option></select>
+    <select id="f-ticker"><option value="">All tickers</option></select>
+    <select id="f-status"><option value="">All statuses</option></select>
+    <select id="f-outlet"><option value="">All outlets</option></select>
+    <select id="f-kind"><option value="">All types</option></select>
+    <select id="f-copy">
+      <option value="">Copies included</option>
+      <option value="unique">Unique texts only</option>
+    </select>
+    <input type="search" id="f-q" placeholder="Search headline, host, error">
+  </div>
+
+  <section id="tab-articles">
+    <div class="split">
+      <div class="box scroll"><table>
+        <thead><tr><th>Published (UTC)</th><th>Ticker</th><th>Status</th><th class="n">Words</th>
+          <th>Outlet / host</th><th>Headline</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table><div class="note" id="rows-note"></div></div>
+      <div class="box scroll detail" id="detail"><div class="note">Click an article to see the extracted text.</div></div>
+    </div>
+  </section>
+
+  <section id="tab-publishers" class="hidden">
+    <div class="box scroll"><table>
+      <thead><tr><th>Host / provider</th><th>Type</th><th class="n">Articles</th><th class="n">full</th>
+        <th class="n">partial</th><th class="n">headline_only</th><th class="n">full %</th><th>Main reasons</th></tr></thead>
+      <tbody id="pubs"></tbody>
+    </table></div>
+  </section>
+
+  <section id="tab-analyst" class="hidden">
+    <div class="box scroll"><table>
+      <thead><tr><th>Date</th><th>Ticker</th><th>Firm</th><th>Rating</th><th>Target</th>
+        <th>Match</th><th>Candidate passages (copied from articles)</th></tr></thead>
+      <tbody id="analyst"></tbody>
+    </table></div>
+  </section>
+</main>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const ROWS = DATA.rows;
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v; else e.setAttribute(k, v);
+  }
+  for (const kid of kids) e.append(kid);
+  return e;
+};
+
+$("sub").textContent = DATA.subtitle;
+
+function fill(id, values) {
+  const sel = $(id);
+  [...new Set(values)].filter(Boolean).sort().forEach((v) => sel.append(el("option", { value: v, text: v })));
+}
+fill("f-source", ROWS.map((r) => r.source));
+fill("f-ticker", ROWS.flatMap((r) => r.tickers));
+fill("f-status", ROWS.map((r) => r.status));
+fill("f-outlet", ROWS.map((r) => r.outlet));
+fill("f-kind", ROWS.map((r) => r.kind));
+
+function filtered() {
+  const f = (id) => $(id).value;
+  const q = $("f-q").value.trim().toLowerCase();
+  return ROWS.filter((r) =>
+    (!f("f-source") || r.source === f("f-source")) &&
+    (!f("f-ticker") || r.tickers.includes(f("f-ticker"))) &&
+    (!f("f-status") || r.status === f("f-status")) &&
+    (!f("f-outlet") || r.outlet === f("f-outlet")) &&
+    (!f("f-kind") || r.kind === f("f-kind")) &&
+    (!f("f-copy") || !r.copy) &&
+    (!q || (r.headline + " " + r.host + " " + r.why + " " + r.provider).toLowerCase().includes(q)));
+}
+
+function cards(rows) {
+  const n = (s) => rows.filter((r) => r.status === s).length;
+  const items = [
+    ["Articles", rows.length], ["full", n("full")], ["partial", n("partial")],
+    ["headline_only", n("headline_only")], ["Copies", rows.filter((r) => r.copy).length],
+    ["Body names company", rows.filter((r) => r.names_company).length],
+  ];
+  $("cards").replaceChildren(...items.map(([label, v]) => el("div", { class: "card" },
+    el("b", { text: v.toLocaleString() }), el("span", { text: label }))));
+}
+
+function articles(rows) {
+  const shown = rows.slice().sort((a, b) => b.published.localeCompare(a.published)).slice(0, 600);
+  $("rows").replaceChildren(...shown.map((r) => {
+    const tr = el("tr", { class: "row" },
+      el("td", { text: r.published.slice(0, 16).replace("T", " ") }),
+      el("td", { text: r.tickers.join(" ") }),
+      el("td", { class: "st " + r.status, text: r.status }),
+      el("td", { class: "n", text: r.words || "" }),
+      el("td", {}, el("span", { class: "chip", text: r.source }), document.createTextNode(r.outlet + " · " + r.host)),
+      el("td", { text: r.headline }));
+    tr.onclick = () => { document.querySelectorAll("tr.sel").forEach((x) => x.classList.remove("sel")); tr.classList.add("sel"); show(r); };
+    return tr;
+  }));
+  $("rows-note").textContent = rows.length > 600 ? `Showing the newest 600 of ${rows.length}. Narrow the filters to see the rest.` : "";
+}
+
+function show(r) {
+  const meta = [r.source, r.outlet, r.provider, r.kind, r.status, r.why, `${r.words} words`,
+                r.copy ? "copy of an earlier text" : "", r.names_company ? "" : "company not named in body"]
+    .filter(Boolean).join(" · ");
+  const link = r.url ? el("a", { href: r.url, target: "_blank", rel: "noopener", text: "Open original ↗" }) : el("span", { text: "No URL" });
+  $("detail").replaceChildren(
+    el("h2", { text: r.headline }),
+    el("div", { class: "meta" }, document.createTextNode(meta + " · "), link),
+    r.text ? el("pre", { text: r.text }) : el("div", { class: "note", text: "No text: " + (r.why || "headline only") }));
+}
+
+function publishers(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.provider && r.provider !== r.host ? `${r.host} / ${r.provider}` : r.host;
+    if (!groups.has(key)) groups.set(key, { kind: r.kind, rows: [] });
+    groups.get(key).rows.push(r);
+  }
+  const lines = [...groups.entries()].sort((a, b) => b[1].rows.length - a[1].rows.length);
+  $("pubs").replaceChildren(...lines.map(([key, g]) => {
+    const c = (s) => g.rows.filter((r) => r.status === s).length;
+    const why = {};
+    g.rows.filter((r) => r.status !== "full" && r.why).forEach((r) => { why[r.why] = (why[r.why] || 0) + 1; });
+    const top = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ×${v}`).join(", ");
+    return el("tr", {},
+      el("td", { text: key }), el("td", { text: g.kind }), el("td", { class: "n", text: g.rows.length }),
+      el("td", { class: "n full", text: c("full") }), el("td", { class: "n partial", text: c("partial") }),
+      el("td", { class: "n headline_only", text: c("headline_only") }),
+      el("td", { class: "n", text: Math.round(100 * c("full") / g.rows.length) + "%" }),
+      el("td", { text: top }));
+  }));
+}
+
+function analyst() {
+  $("analyst").replaceChildren(...DATA.analyst.map((c) => {
+    const passages = el("td", {});
+    if (!c.passages.length) passages.append(el("span", { class: "note", text: "none" }));
+    for (const p of c.passages) {
+      const box = el("div", { class: "passage" }, document.createTextNode(p.passage + " "));
+      if (p.url) box.append(el("a", { href: p.url, target: "_blank", rel: "noopener", text: `${p.source} ↗` }));
+      passages.append(box);
+    }
+    return el("tr", {},
+      el("td", { text: c.date.slice(0, 10) }), el("td", { text: c.ticker }), el("td", { text: c.firm }),
+      el("td", { text: `${c.from_grade} → ${c.to_grade}` }),
+      el("td", { text: c.prior_target || c.target ? `${c.prior_target} → ${c.target}` : "" }),
+      el("td", { text: c.state }), passages);
+  }));
+}
+
+function render() {
+  const rows = filtered();
+  cards(rows);
+  articles(rows);
+  publishers(rows);
+}
+document.querySelectorAll(".filters select, .filters input").forEach((x) => x.addEventListener("input", render));
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+  for (const t of ["articles", "publishers", "analyst"]) $("tab-" + t).classList.toggle("hidden", t !== b.dataset.tab);
+});
+render();
+analyst();
+</script>
+</body>
+</html>

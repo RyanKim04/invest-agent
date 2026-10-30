@@ -1,6 +1,7 @@
 flowchart LR
-    D["Finnhub · Google News · GDELT · IR RSS<br/>title · URL · outlet · time · snippet"] --> U["resolve<br/>publisher URL"]
+    D["Finnhub · IR RSS<br/>title · URL · outlet · time · snippet"] --> U["follow redirect<br/>to publisher"]
     U --> F{"fetch page<br/>robots.txt · ≤ 1 req/s per domain"}
+    A["Alpaca (Benzinga)<br/>content in the API"] --> C
     F -->|blocked or error| H["headline_only<br/>+ fetch_error"]
     F -->|HTML| E["trafilatura"]
     E -->|nothing| H

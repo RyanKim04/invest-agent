@@ -10,7 +10,7 @@ This phase gets ingestion → Postgres → summaries → chunks + bge-m3 → sea
 - No manual fixes
 - 0 missed 8-K or 10-Q filings for the 3 tickers, checked against EDGAR's filing list
 - All dbt tests pass
-- A run killed with `kill -9` during `process` and rerun ends with 0 duplicate rows and at most 1 repeated LLM call
+- A run killed with `kill -9` during `process` and rerun ends with 0 duplicate rows. LLM calls repeat only for summaries that were in flight, at most 5
 - All 25 test queries return an expected document in the top 8
 - Each run takes under 10 min
 - Ingest + summaries cost ≤ $0.02 a day
@@ -46,7 +46,7 @@ F3 and F5 can start right after F0, using test data.
 
 ### F1 · Test every source
 
-Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage aren't documented well enough to plan around.
+Free-tier limits for most sources aren't documented well enough to plan around.
 
 - `scripts/probe_sources.py` calls each source for the 3 tickers over the last 7 days and records:
   - the fields returned and the item count
@@ -54,29 +54,46 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
   - timestamp format
   - rate limits hit
   - terms of use
-- News body test, on 100 real article candidates for the 3 tickers from Finnhub, Google News and GDELT. Run the full F2 fetch path and record:
+- News body test, on 100 real article candidates for the 3 tickers from Finnhub (Google News is blocked by robots.txt, GDELT returned 429). Run the full F2 fetch path and record:
   - per publisher: `body_status` share and failure reasons (403/429/451, paywall, JavaScript-rendered, empty extraction)
   - completeness: full article vs lead only, checked by hand on 30
   - correctness: main text rather than menus, ads or related links, checked by hand on 30
-  - how often a publisher URL can be resolved from a Google News link
   - fetch and extraction time per article
   - for each major event in the window (earnings, guidance, 8-K), whether at least one quotable full-text source exists, either a filing or an article
 - Call Finnhub's company-news endpoint and record the actual response fields
 - Confirm that EDGAR's filing index gives 8-K Item numbers
 - List which sources, if any, have earnings call transcripts
+- **Content over 30 days**, measured on what we can read, not on API responses:
+  - run every Finnhub item from the last 30 days through the fetch path (`probe_news_bodies.py backfill`)
+  - dedupe: Finnhub id, headline, then text copies (8-word shingle containment ≥ 0.8 within 72 h)
+  - article type by the page's provider: reporting, analysis or opinion, press release, auto-generated
+- **Other news and analyst sources, with our keys** (results in `docs/source-probe.md`):
+  - Alpaca News, Benzinga feed with `include_content=true`: kept, for the Benzinga bodies our fetch can't get
+  - EODHD: dropped. One ticker per request at 10 calls, against 20 a day
+  - FMP: dropped. The free plan covers META only
+  - TipRanks MCP: dropped. Its terms forbid keeping data beyond a transient cache
+  - GDELT: dropped. 429 on 9 of 10 requests, with backoff
+- **Analyst reasons.** yfinance gives the rating and target changes but not the reasons. For each change in the 30 days, find an article from the same firm within −1 to +2 days and copy a sentence that names the firm and gives a reason. A sentence quoted in an article is not the broker's report. No match means no reason; the LLM never supplies one
+- Alpha Vantage transcripts across several quarters and all 3 tickers, and the delay after each call
 - Write the results to `docs/source-probe.md`. Pick the M1 sources in `config/sources.yaml`
 
 **Done when**
 - Every source has a measured result and a keep / drop / later decision
 - Every 8-K the 3 tickers filed in the last 90 days can be fetched from EDGAR
 - `docs/source-probe.md` has the per-publisher body table, and lists every major event that lacks a full-text source
+- For GOOG, META and RDDT over the last 30 days, `docs/source-probe.md` reports:
+  - readable news bodies after dedupe, per ticker
+  - the `full` / `partial` / `headline_only` split
+  - the share of reporting vs analysis vs press releases
+  - the share of rating changes linked to a quoted reason, with examples and sources
 
 ### F2 · Ingestion
 
+- Sources are called in parallel, one thread per source, each under its own rate limit. Body fetches run in parallel across hosts, one request at a time per host (`PoliteClient`). A failing source doesn't stop the others
 - One connector per kept source. Each returns:
   ```python
   class RawDocument(BaseModel):
-      source: str               # sec | finnhub | gnews | gdelt | ir_rss
+      source: str               # sec | ir_rss | finnhub | alpaca | alphavantage
       source_id: str            # accession no. + file, API id, or URL
       url: str
       title: str
@@ -94,16 +111,26 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
   - `doc_type` (filing, press_release, news, transcript)
   - `source_rank`: filing 1, press release 2, wire service 3, other 4
   - For filings: `form_type`, `items`, `fiscal_period`
+- A new migration replaces the `source` check on `raw.documents` (0003 lists `gnews` and `gdelt`) with the kept sources
 - `raw.documents` is written with `ON CONFLICT DO NOTHING`. A new `document_versions` row is added only when the normalized text changes
+- Each document keeps the source that found it, the original publisher (e.g. the provider of a Yahoo page), and the source's storage rule from `sources.yaml`. A source whose terms allow only transient caching is never written to `raw`
 - News goes through two stages ([rules](01-system-overview.md#news-bodies)):
   - Discovery stores the title, URL, outlet, time and `feed_snippet`
   - `ingest` then fetches the publisher page, runs trafilatura and the completeness check, and sets `body_status` and `fetch_error`
 - Release pages from IR RSS are fetched the same way. PDF releases go through a PDF text extractor
 - News raw HTML is stored gzipped for 30 days. SEC HTML isn't stored
-- Each item is its own transaction. Cursors go in `ops.fetch_cursors`, counts and errors in `ops.run_steps`, and every row gets the run's `run_id`
+- Each item is its own transaction. Counts and errors go in `ops.run_steps`, and every row gets the run's `run_id`
+- Windows, not watermarks ([late arrivals](01-system-overview.md#late-arrivals)):
+  - `ops.fetch_cursors` keeps each source's last successful run
+  - each run asks for that time minus the source's `lookback` (in `sources.yaml`), up to now
+  - a test fixture holds an item whose `published_at` is older than the last run but first appears now, and the run must store it
+- Earnings calendar from Finnhub (free) and yfinance into `raw.earnings_calendar`: ticker, date, before or after market, `fetched_at`
+- Record `created_at − published_at` for every document. For SEC, compare `created_at` with `acceptanceDateTime` to measure the submissions API's delay
 - SEC: send a User-Agent, stay at or under 10 req/s, and fetch the 8-K main document plus Exhibit 99.1
+- Finnhub items appear 2–5 hours after their timestamp, so every run asks for yesterday and today and dedupes on `id`
+- Earnings call transcripts: Alpaca's same-day transcript first, Alpha Vantage's (1–8 days later) as a backup
 - yfinance daily prices are upserted into `raw.prices_daily`
-- `invest ingest --since 30d` runs the backfill
+- `invest ingest --since 30d` runs the backfill. `invest ingest --sources sec,ir_rss,alpaca --tickers RDDT` is what `earnings_watch` calls
 - Tests use saved API responses, not the network
 
 **Done when**
@@ -113,6 +140,7 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
 - Every news item ends as `full`, `partial` or `headline_only`. A failed fetch keeps its `fetch_error`, and a transient error is retried on the next run
 - No 8-K or 10-Q in the window is missing compared with EDGAR's list
 - A daily run takes under 3 min
+- The late-arrival fixture is stored on the next run, and a report selects it by `created_at`
 
 ### F3 · dbt on Postgres
 
@@ -134,6 +162,7 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
   | Mart | `dim_companies` | Ticker |
   | Mart | `fct_document_coverage_daily` | Ticker × source × day (documents, full-text share, filings vs EDGAR) |
   | Mart | `fct_events` | Event (first seen, documents, outlets) |
+  | Mart | `fct_source_lag_daily` | Source × day (documents, p50 and p95 of `created_at − published_at`) |
 
 - Tests:
   - Postgres constraints already enforce keys, not-null and allowed values on Python tables, so source tests check only what a constraint can't: `tickers_in_universe`
@@ -141,6 +170,7 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
   - No copy shows up in `search_chunks`
   - `version.text[char_start:char_end] = chunk.text`
   - Every `report.claim_evidence` row resolves to its chunk or fact
+  - `fct_source_lag_daily`: warn when a source's p95 passes 80% of its `lookback`
   - Each mart is unique on its declared grain
   - Warning: no ingest step failed for `var('run_id')`
 - Contracts on every mart (names, types, not-null, primary key)
@@ -164,10 +194,12 @@ Free-tier limits for Finnhub, yfinance, Google News, Tiingo and Alpha Vantage ar
 - `invest process` sends Haiku 5.5 every canonical current version that is `full` or `partial` and has no summary for the active `(model, prompt_version)`
 - Haiku returns JSON: a 3-line summary plus tags from a fixed list (earnings, guidance, rating_change, m&a, legal, product, macro, other). Tokens and cost are stored on the row
 - Summaries are for triage and report context only. They are never cited
+- Up to 5 Haiku calls run at once. Each summary is written in its own transaction as its call returns, so a crash repeats only the calls in flight. A 429 backs off and retries
 
 **Done when**
 - A second run makes 0 API calls
 - A changed body makes 1 call. A syndicated copy or a `headline_only` item makes 0
+- 50 documents are summarized in under 1 minute
 - At least 18 of 20 hand-checked summaries are accurate, with no made-up numbers
 - A normal day (about 60 documents) costs $0.02 or less
 
@@ -277,6 +309,9 @@ If it's too slow, try these in order: a shorter `max_length` for news, then ONNX
   - Tasks: check (market day and not yet sent) → ingest → source freshness → process → dbt build → report → deliver
   - Each task runs `/opt/invest/.venv/bin/invest <step>` in a 1-slot `pipeline` pool
   - Retries: ingest and process 2, dbt build and deliver 0. `on_failure_callback` emails the task name and the tail of the log
+- **`earnings_watch` DAG**
+  - Started by `check` on days when `raw.earnings_calendar` has a tracked ticker
+  - Every 10 minutes through the release window: `invest ingest --sources sec,ir_rss,alpaca --tickers <reporting>`. Finnhub runs every 30 minutes. Same lock and pool as the other DAGs
 - **`backup` DAG**, weekly: `pg_dump -Fc` of `raw`, `content`, `ops` and `report` without the embeddings data, uploaded to Oracle Object Storage. The last 4 dumps are kept
 - **`deploy.yml`**: after CI passes on `main`, SSH in, then `git pull`, `docker compose build`, `invest db migrate`, `docker compose up -d`
 - Set a monthly spend limit in the Anthropic console
@@ -287,6 +322,7 @@ If it's too slow, try these in order: a shorter `max_length` for news, then ONNX
 - A manual CLI run started during a scheduled run exits on the lock
 - A deliberately broken dbt test stops the run and sends the alert
 - The latest backup restores into a fresh local database, and `dbt build` passes on it
+- Replaying Oct 29 (RDDT, results at 16:08 ET) puts the 8-K, the release and Alpaca's headlines in the database by 16:20, and the Finnhub articles in the next run after they appear
 - A push to `main` deploys with no manual steps
 - VM memory use stays above 20% over 7 days, so the VM doesn't count as idle
 - A run takes under 10 min
@@ -329,7 +365,7 @@ The M1 gate:
 - every major event in a report (earnings, guidance, 8-K) cites at least one `full` source
 
 **Later milestones:**
-- **M2:** close and after-hours DAGs, 16 tickers, XBRL facts (`stg_sec__xbrl_facts`, joining `int_financial_facts_unioned`), ledger (`stg_broker__ledger_entries` → `int_positions_rolled_up_daily` → `fct_portfolio_daily`, one row per account × date × ticker × valuation currency)
+- **M2:** close and after-hours DAGs (on earnings days the close DAG's sensor, in reschedule mode, waits until 16:25 for the 8-K or the release), 16 tickers, XBRL facts (`stg_sec__xbrl_facts`, joining `int_financial_facts_unioned`), ledger (`stg_broker__ledger_entries` → `int_positions_rolled_up_daily` → `fct_portfolio_daily`, one row per account × date × ticker × valuation currency)
 - **M3:** 30-question eval set, Anthropic vs OpenAI, reranker, final retrieval variant
 - **M4:** earnings report, portfolio analysis, MCP server (`reader` role, exposure `mcp_server`)
 - **M5:** admin UI and website reading `marts` and `report.*` (exposure `website`)
@@ -338,10 +374,9 @@ The M1 gate:
 
 | Decision | Settled by |
 | --- | --- |
-| M1 news sources, and Google News RSS vs GDELT | F1 |
-| Transcript source | F1 |
-| Add a paid full-text news source | F1: any major event without a full-text source |
-| Completeness thresholds (150 words, 70% of `wordCount`) | F1 hand checks |
+| Add a paid full-text news source | A report misses an event that only paid sources cover |
+| Completeness thresholds (150 words, 70% of `wordCount`) | F1 hand check (`data/probe/bodies/review.csv`) |
+| Tickers for holdings, watchlist and the 4 sectors | Before M2. US listings fit as-is. Each ticker adds article fetches, at about 25 a minute from Yahoo |
 | Copy containment threshold (start 0.8), event cosine threshold (start 0.9) | F6 pairs |
 | PyTorch or ONNX for bge-m3 | F6 timing |
 | Sparse vs FTS, `halfvec` vs `vector`, RRF k | F7 benchmark |
@@ -352,8 +387,8 @@ The M1 gate:
 
 | Item | Checked in |
 | --- | --- |
-| Whether SEC companyfacts includes segment (dimensional) facts. If not, segments come only from filing tables | F1 |
-| Finnhub company-news fields and free-tier limits (the API docs didn't render) | F1 |
+| Finnhub's and Benzinga's terms of use (not found or not read in F1) | Before M1 |
+| Alpha Vantage transcript delay after a call (1–8 days in F1) | F2 |
 | Which constraints Postgres enforces in a dbt contract (the docs table was read by tab order) | F3 |
 | `sparsevec(250002)` storing bge-m3 output (the README gives no storage limit) | F5 |
 | bge-m3 speed on 2 ARM OCPUs | F6 |

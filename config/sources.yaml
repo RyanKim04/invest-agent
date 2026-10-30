@@ -1,0 +1,52 @@
+# M1 sources. Measured in docs/source-probe.md (F1, Oct 29, 2026).
+
+sec:
+  enabled: true
+  requests_per_second: 8          # SEC allows 10
+  lookback: 1d
+  forms: [8-K, 8-K/A, 10-Q, 10-K]
+  exhibits: [EX-99.1, EX-99.2]    # press release, shareholder letter
+
+ir_rss:
+  enabled: true
+  feeds:
+    GOOG: https://abc.xyz/rss/pressrelease.aspx
+    META: https://investor.atmeta.com/rss/pressrelease.aspx
+    RDDT: https://investor.redditinc.com/rss/pressrelease.aspx
+  lookback: 1d
+
+finnhub:
+  enabled: true                   # discovery; bodies come from the publisher page
+  window_days: 1                  # a longer window is cut off at about 250 items
+  lookback: 2d                    # items show up 2-5 hours late; the API takes dates
+  calls_per_minute: 60
+
+alpaca:
+  enabled: true                   # Benzinga bodies, which block our fetches; same-day transcripts
+  include_content: true
+  calls_per_minute: 200
+  lookback: 6h                    # free keys may lag 15 minutes
+
+yfinance:
+  enabled: true
+  data: [prices_daily, upgrades_downgrades, analyst_price_targets, earnings_estimate, earnings_dates]
+  lookback: 3d
+
+alphavantage:
+  enabled: true
+  data: [earnings_call_transcript]  # backup: arrives 1-8 days after the call
+  calls_per_day: 25
+  poll_until_found: 14d           # one call per missing transcript per day
+
+fred:
+  enabled: true
+  # VIXCLS is left out: it's third-party copyrighted, personal use only.
+  series: [DGS10, DGS2, T10Y2Y, DFF, CPIAUCSL, UNRATE, DTWEXBGS]
+
+# Dropped
+gnews: {enabled: false}           # robots.txt disallows /rss/
+gdelt: {enabled: false}           # 429 on 9 of 10 requests, with backoff
+tiingo: {enabled: false}          # prices duplicate yfinance; news and fundamentals are paid
+eodhd: {enabled: false}           # one ticker per request (10 calls) against 20 a day
+fmp: {enabled: false}             # free plan covers META only
+tipranks: {enabled: false}        # terms forbid keeping data beyond a transient cache
