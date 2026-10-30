@@ -118,7 +118,7 @@ Free-tier limits for most sources aren't documented well enough to plan around.
   - Discovery stores the title, URL, outlet, time and `feed_snippet`
   - `ingest` then fetches the publisher page, runs trafilatura and the completeness check, and sets `body_status` and `fetch_error`
 - Release pages from IR RSS are fetched the same way. PDF releases go through a PDF text extractor
-- News raw HTML is stored gzipped for 30 days. SEC HTML isn't stored
+- HTML isn't stored, only the extracted text ([raw files](01-system-overview.md#storage))
 - Each item is its own transaction. Counts and errors go in `ops.run_steps`, and every row gets the run's `run_id`
 - Windows, not watermarks ([late arrivals](01-system-overview.md#late-arrivals)):
   - `ops.fetch_cursors` keeps each source's last successful run
@@ -225,6 +225,7 @@ Free-tier limits for most sources aren't documented well enough to plan around.
 
 - The copy check runs first ([rules](01-system-overview.md#copies-and-events))
 - Chunks follow the document type ([rules](01-system-overview.md#chunking))
+- Lines that appear in 5 or more documents from the same publisher within 30 days are left out of chunks. This catches rotating promo blocks that the extractor's fixed list misses
 - `embed_input_hash` = hash(context header + text). An existing embedding with the same hash and `model_key` is reused
 - bge-m3 encodes dense and sparse in one call. The weights live on a VM volume:
   ```python
@@ -375,7 +376,6 @@ The M1 gate:
 | Decision | Settled by |
 | --- | --- |
 | Add a paid full-text news source | A report misses an event that only paid sources cover |
-| Completeness thresholds (150 words, 70% of `wordCount`) | F1 hand check (`data/probe/bodies/review.csv`) |
 | Tickers for holdings, watchlist and the 4 sectors | Before M2. US listings fit as-is. Each ticker adds article fetches, at about 25 a minute from Yahoo |
 | Copy containment threshold (start 0.8), event cosine threshold (start 0.9) | F6 pairs |
 | PyTorch or ONNX for bge-m3 | F6 timing |

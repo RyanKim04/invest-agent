@@ -101,7 +101,9 @@ Finnhub only finds articles. The body comes from the publisher's own page, or fr
 | `partial` | Lead only, paywall teaser, or truncated | Quotes from the extracted part only. The report marks the source "(partial)" |
 | `headline_only` | Title only. `fetch_error` holds the reason if the fetch failed | Discovery, event grouping, a link, and quoting the headline. Nothing about the article's reasoning, quotes or numbers |
 
-- **Completeness check.** An article is `partial` if its JSON-LD says `isAccessibleForFree: false`, if it has fewer than 150 extracted words, if a paywall phrase appears, or if the extracted words are under 70% of the JSON-LD `wordCount`. These are starting values; F1 tunes them.
+- **Completeness check.** An article is `partial` if its JSON-LD says `isAccessibleForFree: false`, if it has fewer than 150 extracted words, if a paywall phrase appears, or if the extracted words are under 70% of the JSON-LD `wordCount`. F1's hand check kept these thresholds.
+- **No body.** A page that is mostly a menu (30% or more of its words in 1–3 word lines), or says it is a headline-only stub, is `headline_only` with `fetch_error = no_body`.
+- **Cleanup.** Before extraction, hidden "read more" sections are shown. After it, paragraphs trafilatura dropped from a body split around an embed are added back, and publisher promo and footer lines are removed. Each version stores the extractor (`trafilatura-2.3.1+rules-2`), so a rule change can be re-run on recent articles.
 - **Fetching.** Obey robots.txt (RFC 9309), make at most 1 request per second per domain with one request in flight, and send a User-Agent that names the project. Different domains are fetched in parallel.
 - **Retries.** A transient error (429, 5xx, timeout) is retried on the next 2 runs.
 - **What we don't do.** No paywall bypass. No headless browser unless F1 shows a key publisher needs one.
@@ -156,15 +158,16 @@ Roles:
 
 **Numbers from filings.** A number is saved only if it appears at the stated place in the filing *and* its metric, period, unit and GAAP/non-GAAP basis match the table headers. The same figure can appear as revenue, as EPS, or as last year's value.
 
-**Size.** These are estimates. F6 replaces them with measured bytes per chunk.
-- Pilot: ~35k chunks (0.3 GB) a year, which fits Neon Free's 1 GB.
-- After expansion: ~200k chunks (1.6 GB) a year, which needs Neon Launch at about $5/month. Launch costs $0.106 per CU-hour and $0.35 per GB-month, with no minimum.
-- Assumptions: ~60 documents a day in the pilot, 5× after expansion, ~8 KB per chunk.
+**Size.** News volume was measured in F1. F6 replaces the bytes per chunk with a measured value.
+- Pilot: 2,733 readable news bodies in 30 days (~90 a day), averaging 756 words or about 2.5 chunks. That's ~85k chunks (0.7 GB) a year, so Neon Free's 1 GB lasts about a year.
+- M2, 16 tickers: volume varies a lot by ticker. In 30 days there were 1,197 bodies about GOOG, 977 about META and 93 about RDDT. If the 13 added tickers average 400 a month, that's ~240k chunks (1.9 GB) a year, which needs Neon Launch at about $5/month. Launch costs $0.106 per CU-hour and $0.35 per GB-month, with no minimum.
+- Assumptions: ~8 KB per chunk (text, dense and sparse vectors, indexes). Filings add little next to news.
+- To cut it: chunk only bodies about the company, skip auto-generated pages, store the dense vector as `halfvec`.
 
 **Raw files.**
-- News HTML is kept gzipped for 30 days.
-- SEC HTML isn't stored, because EDGAR serves it by accession.
-- Raw files move to Oracle Object Storage (20 GB free) only if news HTML has to be kept longer than 30 days, raw bytes exceed 25% of the database, or PDFs or audio arrive.
+- HTML isn't stored, only the extracted text. In F1, 30 days of news HTML for the 3 pilot tickers came to 307 MB, against 17 MB of text.
+- To re-run an improved extractor, recent articles are fetched again. Older ones keep the text they have. SEC documents can always be fetched again from EDGAR by accession.
+- Raw files go to Oracle Object Storage (20 GB free) only if PDFs or audio have to be kept.
 
 ## Lineage
 

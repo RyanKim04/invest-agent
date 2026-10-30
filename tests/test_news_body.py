@@ -1,8 +1,14 @@
 import json
 
+import lxml.html
 import pytest
 
-from invest_agent.ingest.news_body import classify, read_jsonld
+from invest_agent.ingest.news_body import (
+    _add_split_blocks,
+    _strip_boilerplate,
+    classify,
+    read_jsonld,
+)
 
 WORDS = (
     "revenue guidance margin capital spending advertising cloud segment quarter growth "
@@ -91,3 +97,82 @@ def test_bot_check_page_is_headline_only():
     body = classify(html)
     assert body.status == "headline_only"
     assert body.fetch_error in {"bot_challenge", "empty_extraction"}
+
+
+def test_hidden_read_more_is_kept():
+    hidden = article(300).replace(
+        b"</article>",
+        b"<div class='read-more-wrapper' data-testid='read-more' style='display: none'>"
+        b"<p>The closing paragraph explains the valuation case and the risks investors weigh "
+        b"before the next quarterly report arrives.</p></div></article>",
+    )
+    body = classify(hidden)
+    assert "closing paragraph explains the valuation" in body.text
+
+
+def test_dropped_block_before_embed_is_added_back():
+    first = (
+        "Shares fell sharply on Thursday after the company reported weaker search revenue "
+        "and higher spending than analysts expected."
+    )
+    later = [
+        f"Paragraph {i} discusses capital spending, cloud demand, the data center buildout "
+        "and the outlook for operating margins."
+        for i in range(3)
+    ]
+    html = (
+        "<html><body><article><div class='c'><p>" + first + "</p></div><figure>chart</figure>"
+        "<div class='c'>" + "".join(f"<p>{p}</p>" for p in later) + "</div>"
+        "<a href='/other'><p class='read-next-card-teaser'>Another story about bond yields "
+        "and the Federal Reserve that a reader might click on next.</p></a>"
+        "</article></body></html>"
+    )
+    text = _add_split_blocks(lxml.html.fromstring(html), "\n".join(later))
+    assert text.split("\n") == [first, *later]
+
+
+def test_boilerplate_lines_are_removed():
+    text = "\n".join(
+        [
+            "Reddit grew revenue 48% in the quarter, ahead of guidance.",
+            "Advertisement|Remove ads.",
+            "RDDT Reddit",
+            "NYSE · As of 4:00 PM ET 10/29/26",
+            "At $29.96 per share, Cadre trades at 21.5x forward P/E. Is now a good time to buy? "
+            "See for yourself in our in-depth research report, it's free.",
+            "Don't Miss:",
+            "- A link to another story",
+            "Margins widened as advertising prices rose.",
+            "Building a resilient portfolio means thinking beyond a single asset.",
+            "Sponsor copy that rotates every week.",
+        ]
+    )
+    assert _strip_boilerplate(text).split("\n") == [
+        "Reddit grew revenue 48% in the quarter, ahead of guidance.",
+        "At $29.96 per share, Cadre trades at 21.5x forward P/E.",
+        "Margins widened as advertising prices rose.",
+    ]
+
+
+def test_headline_only_stub_has_no_body():
+    stub = article(300, tail="This headline only article is a sample of real-time intelligence.")
+    body = classify(stub)
+    assert body.status == "headline_only"
+    assert body.fetch_error == "no_body"
+
+
+def test_menu_page_has_no_body():
+    menu = "".join(f"<li><a href='/{i}'>Section {i}</a></li>" for i in range(80))
+    html = (
+        f"<html><body><div><ul>{menu}</ul></div>"
+        "<p>Watch the interview about advertising demand.</p></body></html>"
+    ).encode()
+    body = classify(html)
+    assert body.status == "headline_only"
+    assert body.fetch_error in {"no_body", "empty_extraction"}
+
+
+def test_bot_check_text_in_a_long_page_is_partial():
+    body = classify(article(400, tail="Please enable Javascript and cookies to continue."))
+    assert body.status == "partial"
+    assert "paywall_phrase" in body.reasons

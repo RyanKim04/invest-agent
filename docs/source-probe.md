@@ -162,7 +162,31 @@ The 100 articles all came from Finnhub, because Google News is blocked by robots
 - **Completeness signals:** JSON-LD `isAccessibleForFree` appeared on 14 pages and `wordCount` on 15. The word-count and phrase checks do most of the work, so the hand check decides whether they're right.
 - **Length:** `full` articles have a median of 569 words, min 225.
 - **Time:** fetch p50 1.4 s, p95 5.4 s. Extraction p50 28 ms, p95 70 ms. One request per second per host, with Yahoo at 73% of links, keeps a sequential run to about 25 articles a minute. The 30-day run used 6 threads.
-- **Hand check:** 30 rows in `data/probe/bodies/review.csv`, completeness and main-text-only. *Pending.*
+- **Hand check:** 30 rows, checked by a separate agent against the saved HTML (`data/probe/bodies/review.csv`, then `review_v2.csv` after the fix).
+  - First pass: of 20 `full` rows, 16 were complete and 8 were main text only. All 10 `partial` rows really were cut off, but 3 for the wrong reason.
+  - No miss came from the 150-word or 70% thresholds, so they stay. The misses came from page structure:
+
+| Problem | Where | Fix (`rules-2`) |
+| --- | --- | --- |
+| The end of the article sits in a hidden "Story continues" section, which trafilatura skips | Yahoo | Unhide it before extraction |
+| The body is split around a chart or video, and trafilatura keeps only the larger block | Telegraph, Yahoo video, CNBC live blog | Add back dropped paragraphs (15+ words) from the same `<article>`, skipping cards, lists, author boxes and teasers |
+| The page is a menu or a promo stub with no article | CNBC `/video/`, Benzinga "headline only article" | `headline_only`, `fetch_error = no_body` |
+| Promo, sponsor and footer lines | 12 of 20 `full` rows | Line rules taken from lines repeated across the 30-day set. A sponsor block is cut from its heading to the end, so rotating sponsors don't need new rules |
+| Seeking Alpha teaser behind a bot check | Seeking Alpha | "enable javascript and cookies" counts as a paywall phrase |
+
+  - After the fix, the agent re-checked the 17 changed rows:
+    - All 4 new `headline_only` rows were right.
+    - Of the 18 `full` rows that still have text, 17 are complete and 14 are main text only.
+    - No article text was removed.
+  - The agent's 4 remaining finds (rows 4, 9, 11 and 15) were fixed after that and checked only by grep, not by a third pass.
+  - Still open:
+    - The CNBC live blog misses 3 short post headlines.
+    - Telegraph serves the full text but stays `partial`, because its JSON-LD says it isn't free. We keep that conservative.
+    - Summary boxes ("Key Points") are dropped, but they repeat the body.
+- **30-day set with `rules-2`:**
+  - 52 CNBC video pages became `headline_only` and 3 short Yahoo pages became `partial`.
+  - Net change is +26k words (2.05M → 2.07M), most of it Yahoo endings restored after promos were taken out.
+  - Long lines that went missing were titles (stored separately), captions, legal disclaimers and promos.
 
 ## Major events, Oct 22–29
 
@@ -277,5 +301,5 @@ Personal-use terms fit while reports go only to you. A website or MCP that other
 - News: Finnhub finds articles and we fetch them. Alpaca supplies Benzinga bodies. IR RSS supplies company releases.
 - Fetching runs hosts in parallel (PoliteClient is thread-safe, one request at a time per host). Yahoo's 1 request per second is the limit.
 - Rating changes come from yfinance, and a reason is linked only from an article passage. Keep yfinance's target and the article's, and flag when they disagree.
-- Earnings call transcripts come from Alpha Vantage. The overview's "no transcripts" line is out of date.
+- Extraction uses `rules-2` (see the hand check above): unhide Yahoo's read-more, add back split blocks, strip promo lines, mark menu pages and stubs `no_body`.
 - robots.txt is parsed with Protego (`*`, `$`, longest match wins, per RFC 9309). The standard library's parser doesn't follow the RFC.
